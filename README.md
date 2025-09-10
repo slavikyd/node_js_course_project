@@ -4,6 +4,10 @@
 ### Stack
 Express.js, WebRTC, MongoDB, SocketIO
 
+### Description
+
+Educational project for backend JS course and research purposes of JS Web-video-streaming capabilites, with further comparison to Python and C++ web streaming.
+
 ### OpenApi description
 ```
 openapi: 3.1.1
