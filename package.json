@@ -1,0 +1,19 @@
+{
+  "name": "web_streamer",
+  "version": "0.0.1",
+  "description": "Express.js, WebRTC, MongoDB, SocketIO",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "express": "^5.1.0",
+    "mongodb": "^6.19.0",
+    "mongoose": "^8.18.1",
+    "node-webcam": "^0.8.2",
+    "rtsp-relay": "^1.9.0"
+  }
+}
