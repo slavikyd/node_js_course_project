@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 
-// Welcome/health check endpoint
 router.get('/*splat', (req, res) => {
   res.json({ 
     message: 'Welcome to the CRUD API',
@@ -17,7 +16,6 @@ router.get('/*splat', (req, res) => {
   });
 });
 
-// Health check endpoint
 router.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
