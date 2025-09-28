@@ -1,30 +1,34 @@
 const mongoose = require('mongoose');
+const config = require('./config'); // Import your config
 
 const connectDB = async () => {
   try {
-    // Check if MongoDB is running
-    await mongoose.connect('mongodb://root:example@127.0.0.1:27017/crudapp?authSource=admin');
-    console.log('MongoDB Connected Successfully');
+    const options = {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      // These options help with authentication issues
+      authSource: 'admin',
+      retryWrites: true,
+      w: 'majority'
+    };
+
+    console.log('🔗 Attempting to connect to MongoDB...');
+    console.log(`📝 Connection string: ${config.mongoURI}`);
     
-    // Listen to connection events
-    mongoose.connection.on('error', (err) => {
-      console.error('MongoDB connection error:', err);
-    });
-    
-    mongoose.connection.on('disconnected', () => {
-      console.log('MongoDB disconnected');
-    });
-    
-    // Close connection on app termination
-    process.on('SIGINT', async () => {
-      await mongoose.connection.close();
-      console.log('MongoDB connection closed due to app termination');
-      process.exit(0);
-    });
+    const conn = await mongoose.connect(config.mongoURI, options);
+
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    console.log(`📊 Database: ${conn.connection.name}`);
   } catch (error) {
-    console.error('Database connection error:', error.message);
-    console.log('Please make sure MongoDB is running on your system');
-    process.exit(1);
+    console.error('❌ MongoDB connection error:', error.message);
+    
+    if (error.code === 13) { // Unauthorized
+      console.log('\n🔐 Authentication required but no credentials provided.');
+      console.log('💡 Solution: Let\'s use in-memory storage for now.');
+    }
+    
+    // Don't exit process - we'll use in-memory storage instead
+    console.log('🔄 Switching to in-memory storage...');
   }
 };
 

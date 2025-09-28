@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const Room = require("../models/Room");
+const { v4: uuidv4 } = require("uuid");
 
 const indexRoutes = require('./index');
 router.use('/*splat', indexRoutes);
@@ -92,5 +94,28 @@ router.delete('/users/:id', async (req, res, next) => {
     next(error);
   }
 });
+
+// POST rooms
+router.post("/rooms", async (req, res) => {
+  try {
+    const { name } = req.body;
+    const newRoom = new Room({ name, roomId: uuidv4() });
+    await newRoom.save();
+    res.json(newRoom);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET rooms
+router.get("/rooms", async (req, res) => {
+  try {
+    const rooms = await Room.find().sort({ createdAt: -1 });
+    res.json(rooms);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 module.exports = router;
