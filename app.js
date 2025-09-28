@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 
-// Import config and database connection
+// Config & DB
 const config = require("./config/config");
 const connectDB = require("./config/db");
 
@@ -14,7 +14,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Serve index.html for root route
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -23,14 +22,13 @@ app.get("/", (req, res) => {
 let inMemoryRooms = [];
 let useInMemoryStorage = false;
 
-// --- Room API Endpoints ---
+// --- Room API ---
 app.post("/api/rooms/create", async (req, res) => {
   try {
     console.log("➡️ Create Room request:", req.body);
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: "Room name required" });
 
-    // Use in-memory storage
     const newRoom = { 
       name, 
       roomId: uuidv4(),
@@ -59,7 +57,6 @@ app.get("/api/rooms", async (req, res) => {
   }
 });
 
-// Test endpoint to check if API is working
 app.get("/api/test", (req, res) => {
   res.json({ 
     message: "API is working!", 
@@ -69,13 +66,12 @@ app.get("/api/test", (req, res) => {
   });
 });
 
-// Clear rooms endpoint (for testing)
 app.delete("/api/rooms/clear", (req, res) => {
   inMemoryRooms = [];
   res.json({ message: "All rooms cleared from memory" });
 });
 
-// --- WebRTC Signaling with Socket.io ---
+// --- WebRTC / Socket.io ---
 const http = require("http").createServer(app);
 const io = require("socket.io")(http);
 
@@ -85,32 +81,24 @@ const roomUsers = {};
 io.on("connection", (socket) => {
   console.log("🔌 User connected:", socket.id);
 
-  socket.on("join-room", async ({ roomId }) => {
-    try {
-      console.log(`🎯 User ${socket.id} joining room: ${roomId}`);
-      socket.join(roomId);
-      
-      if (!roomUsers[roomId]) {
-        roomUsers[roomId] = [];
-      }
-      
-      roomUsers[roomId].push(socket.id);
+  socket.on("join-room", ({ roomId }) => {
+    console.log(`🎯 User ${socket.id} joining room: ${roomId}`);
+    socket.join(roomId);
 
-      if (!roomHosts[roomId]) {
-        roomHosts[roomId] = socket.id;
-        socket.emit("role", { role: "host" });
-        console.log(`🎥 ${socket.id} is HOST of room ${roomId}`);
-      } else {
-        socket.emit("role", { role: "viewer" });
-        console.log(`👀 ${socket.id} is VIEWER in room ${roomId}`);
-        io.to(roomHosts[roomId]).emit("user-joined", { userId: socket.id });
-      }
+    if (!roomUsers[roomId]) roomUsers[roomId] = [];
+    roomUsers[roomId].push(socket.id);
 
-      console.log(`📊 Room ${roomId} now has ${roomUsers[roomId].length} users`);
-    } catch (error) {
-      console.error("❌ Join room error:", error);
-      socket.emit("error", { message: "Failed to join room" });
+    if (!roomHosts[roomId]) {
+      roomHosts[roomId] = socket.id;
+      socket.emit("role", { role: "host" });
+      console.log(`🎥 ${socket.id} is HOST of room ${roomId}`);
+    } else {
+      socket.emit("role", { role: "viewer" });
+      console.log(`👀 ${socket.id} is VIEWER in room ${roomId}`);
+      io.to(roomHosts[roomId]).emit("user-joined", { userId: socket.id });
     }
+
+    console.log(`📊 Room ${roomId} now has ${roomUsers[roomId].length} users`);
   });
 
   socket.on("offer", ({ offer, roomId }) => {
@@ -124,11 +112,8 @@ io.on("connection", (socket) => {
     if (toUserId) {
       io.to(toUserId).emit("answer", { answer, userId: socket.id });
       console.log(`📥 Viewer ${socket.id} sent answer to host ${toUserId}`);
-    } else {
-      const hostId = roomHosts[roomId];
-      if (hostId) {
-        io.to(hostId).emit("answer", { answer, userId: socket.id });
-      }
+    } else if (roomHosts[roomId]) {
+      io.to(roomHosts[roomId]).emit("answer", { answer, userId: socket.id });
     }
   });
 
@@ -175,7 +160,7 @@ connectDB().then(() => {
     console.log(`🚀 Server running on port ${config.port}`);
     console.log(`📱 Open http://localhost:${config.port} in your browser`);
     console.log(`🌍 Environment: ${config.nodeEnv}`);
-    console.log(`💾 Storage: IN-MEMORY`);
+    console.log(`💾 Storage: ${useInMemoryStorage ? "IN-MEMORY" : "MongoDB"}`);
   });
 }).catch(err => {
   useInMemoryStorage = true;

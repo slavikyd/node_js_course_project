@@ -162,7 +162,7 @@
     let peerConnection = null;
     let myRole = null;
     let currentRoomId = null;
-    
+
     const servers = { 
       iceServers: [{ 
         urls: [
@@ -172,7 +172,6 @@
       }] 
     };
 
-    // UI Elements
     const statusDiv = document.getElementById('status');
     const roomListDiv = document.getElementById('roomList');
     const loadingRoomsDiv = document.getElementById('loadingRooms');
@@ -211,8 +210,6 @@
         const room = await res.json();
         updateStatus(`✅ Room "${room.name}" created successfully!`, 'success');
         loadRooms();
-        
-        // Auto-join the created room
         joinRoom(room.roomId);
       } catch (error) {
         console.error("Create room error:", error);
@@ -226,11 +223,7 @@
         roomListDiv.innerHTML = '';
         
         const res = await fetch("/api/rooms");
-        
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const rooms = await res.json();
         
         if (rooms.length === 0) {
@@ -259,33 +252,16 @@
     async function setupMedia() {
       try {
         updateStatus("Requesting camera and microphone access...", "loading");
-        
         localStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          }, 
+          video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
           audio: true 
         });
-        
         document.getElementById("localVideo").srcObject = localStream;
         startVideoBtn.style.display = 'none';
         stopVideoBtn.style.display = 'inline-block';
         updateStatus("✅ Camera and microphone access granted", "success");
-        
-        // If we're in a room and host, create offer immediately
-        if (currentRoomId && myRole === 'host') {
-          // Add tracks to existing peer connection
-          if (peerConnection) {
-            localStream.getTracks().forEach(track => {
-              peerConnection.addTrack(track, localStream);
-            });
-          }
-          setTimeout(() => {
-            createOffer();
-          }, 1000);
-        }
-        
+
+        if (currentRoomId && myRole === 'host') addTracksAndOffer();
         return true;
       } catch (error) {
         console.error("Media access error:", error);
@@ -307,64 +283,41 @@
 
     function createPeerConnection() {
       const pc = new RTCPeerConnection(servers);
-      
-      // Add local stream tracks if available
-      if (localStream) {
-        localStream.getTracks().forEach(track => {
-          pc.addTrack(track, localStream);
-        });
-      }
-      
+      if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       pc.onicecandidate = (event) => {
-        if (event.candidate && currentRoomId) {
-          socket.emit("ice-candidate", { 
-            candidate: event.candidate, 
-            roomId: currentRoomId 
-          });
-        }
+        if (event.candidate && currentRoomId) socket.emit("ice-candidate", { candidate: event.candidate, roomId: currentRoomId });
       };
-      
       pc.ontrack = (event) => {
         console.log('Received remote stream!');
         document.getElementById("remoteVideo").srcObject = event.streams[0];
         updateRemoteStatus("✅ Connected to remote stream");
         updateStatus("✅ Video connection established!", "success");
       };
-      
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
         console.log('Connection state:', state);
         updateRemoteStatus(`Connection: ${state}`);
-        
-        if (state === 'connected') {
-          updateStatus("✅ Peer connection established!", "success");
-        } else if (state === 'failed' || state === 'disconnected') {
-          updateStatus(`❌ Connection ${state}`, "error");
-        }
+        if (state === 'connected') updateStatus("✅ Peer connection established!", "success");
+        else if (state === 'failed' || state === 'disconnected') updateStatus(`❌ Connection ${state}`, "error");
       };
-      
       return pc;
     }
 
+    async function addTracksAndOffer() {
+      if (!peerConnection) peerConnection = createPeerConnection();
+      if (localStream) localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+      setTimeout(createOffer, 500);
+    }
+
     async function createOffer() {
-      if (!peerConnection) {
-        console.log('No peer connection for creating offer');
-        return;
-      }
-      
+      if (!peerConnection || !currentRoomId) return;
       try {
         console.log('Creating offer...');
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        
-        socket.emit("offer", { 
-          offer, 
-          roomId: currentRoomId 
-        });
+        socket.emit("offer", { offer, roomId: currentRoomId });
         updateStatus("📤 Sent video offer to viewers", "success");
-      } catch (error) {
-        console.error("Create offer error:", error);
-      }
+      } catch (error) { console.error("Create offer error:", error); }
     }
 
     // --- Room Joining ---
@@ -372,23 +325,14 @@
       try {
         updateStatus(`Joining room...`, "loading");
         console.log('Joining room:', roomId);
-        
-        // Reset previous connection
-        if (peerConnection) {
-          peerConnection.close();
-          peerConnection = null;
-        }
-        
+
+        if (peerConnection) peerConnection.close();
+        peerConnection = createPeerConnection();
+
         currentRoomId = roomId;
         document.getElementById("remoteVideo").srcObject = null;
         updateRemoteStatus("Connecting...");
-        
-        // Create peer connection first
-        peerConnection = createPeerConnection();
-        
-        // Then join the room
         socket.emit("join-room", { roomId });
-        
       } catch (error) {
         console.error("Join room error:", error);
         updateStatus(`❌ Failed to join room: ${error.message}`, 'error');
@@ -399,90 +343,44 @@
     socket.on("role", async ({ role }) => {
       myRole = role;
       console.log('Assigned role:', role);
-      
+
       if (role === "host") {
         updateStatus("🎥 You are the HOST - Starting your video...", 'host');
         startVideoBtn.style.display = 'inline-block';
         updateRemoteStatus("Waiting for you to start video...");
-        
-        // Auto-start video for host
-        setTimeout(() => {
-          if (!localStream) {
-            console.log('Auto-starting video for host');
-            setupMedia();
-          }
-        }, 500);
-
-        // Host waits for viewers to join before creating offer
-        socket.on("user-joined", async ({ userId }) => {
-          console.log('Viewer joined:', userId);
-          if (peerConnection && localStream) {
-            setTimeout(() => {
-              createOffer();
-            }, 1000);
-          } else if (peerConnection && !localStream) {
-            // If we have peer connection but no local stream, wait a bit more
-            setTimeout(() => {
-              if (localStream) {
-                createOffer();
-              }
-            }, 2000);
-          }
-        });
+        socket.on("user-joined", () => addTracksAndOffer());
       }
-      
+
       if (role === "viewer") {
         updateStatus("👀 You are a VIEWER - Waiting for host stream...", 'viewer');
         updateRemoteStatus("Waiting for host to start streaming...");
-        
-        // Auto-start video for viewer too (optional)
-        setTimeout(() => {
-          if (!localStream) {
-            startVideoBtn.style.display = 'inline-block';
-          }
-        }, 500);
-        
-        // Viewer waits for offer from host
         socket.on("offer", async ({ offer, userId }) => {
           console.log('Received offer from host');
           try {
+            if (!peerConnection) peerConnection = createPeerConnection();
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            if (!localStream) await setupMedia();
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
-            
-            socket.emit("answer", { 
-              answer, 
-              roomId: currentRoomId,
-              toUserId: userId 
-            });
+            socket.emit("answer", { answer, roomId: currentRoomId, toUserId: userId });
             updateStatus("📥 Connected to host", "success");
-          } catch (error) {
-            console.error("Answer error:", error);
-          }
+          } catch (error) { console.error("Answer error:", error); }
         });
       }
     });
 
-    socket.on("answer", async ({ answer, userId }) => {
-      console.log('Received answer from viewer');
+    socket.on("answer", async ({ answer }) => {
+      console.log('Received answer');
       if (peerConnection) {
-        try {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-          updateStatus("✅ Connected with viewer", "success");
-        } catch (error) {
-          console.error("Set remote description error:", error);
-        }
+        try { await peerConnection.setRemoteDescription(new RTCSessionDescription(answer)); }
+        catch (error) { console.error("Set remote description error:", error); }
       }
     });
 
-    socket.on("ice-candidate", async ({ candidate, userId }) => {
-      console.log('Received ICE candidate');
+    socket.on("ice-candidate", async ({ candidate }) => {
       if (peerConnection) {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (error) {
-          console.error("ICE candidate error:", error);
-        }
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); }
+        catch (error) { console.error("ICE candidate error:", error); }
       }
     });
 
@@ -498,11 +396,10 @@
       updateStatus(`Error: ${message}`, 'error');
     });
 
-    // --- Button Handlers ---
+    // Buttons
     startVideoBtn.onclick = setupMedia;
     stopVideoBtn.onclick = stopMedia;
 
-    // Initialize
     console.log('Initializing application...');
     loadRooms();
   </script>
