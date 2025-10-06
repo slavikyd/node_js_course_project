@@ -38,9 +38,11 @@ router.post('/login', async (req, res) => {
     const isMatch = await user.comparePassword(password);
     if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
+    // Generate JWT token here
     const payload = { id: user._id, email: user.email };
     const token = jwt.sign(payload, config.jwtSecret, { expiresIn: '1d' });
 
+    // Respond with token and user info
     res.json({
       message: 'Login successful',
       token,
@@ -50,6 +52,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
       },
     });
+
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error' });
