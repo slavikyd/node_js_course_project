@@ -4,7 +4,7 @@
   "description": "Express.js, WebRTC, MongoDB, SocketIO",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha"
   },
   "author": "",
   "license": "ISC",
@@ -16,8 +16,10 @@
     "esm": "^3.2.25",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mocha": "^11.7.5",
     "mongodb": "^6.19.0",
     "mongoose": "^8.18.1",
+    "node-mocks-http": "^1.17.2",
     "node-webcam": "^0.8.2",
     "rtsp-relay": "^1.9.0",
     "socket.io": "^4.8.1",
