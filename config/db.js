@@ -1,35 +1,27 @@
 const mongoose = require('mongoose');
-const config = require('./config'); // Import your config
+const config = {
+  port: process.env.PORT || 3000,
+  mongoURI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/crudapp',
+  nodeEnv: process.env.NODE_ENV || 'development',
+  jwtSecret: process.env.JWT_SECRET || 'your_jwt_secret_here'
+};
 
+// Function to connect to MongoDB using mongoose
 const connectDB = async () => {
   try {
-    const options = {
+    await mongoose.connect(config.mongoURI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      // These options help with authentication issues
-      authSource: 'admin',
-      retryWrites: true,
-      w: 'majority'
-    };
-
-    console.log('🔗 Attempting to connect to MongoDB...');
-    console.log(`📝 Connection string: ${config.mongoURI}`);
-    
-    const conn = await mongoose.connect(config.mongoURI, options);
-
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-    console.log(`📊 Database: ${conn.connection.name}`);
-  } catch (error) {
-    console.error('❌ MongoDB connection error:', error.message);
-    
-    if (error.code === 13) { // Unauthorized
-      console.log('\n🔐 Authentication required but no credentials provided.');
-      console.log('💡 Solution: Let\'s use in-memory storage for now.');
-    }
-    
-    // Don't exit process - we'll use in-memory storage instead
-    console.log('🔄 Switching to in-memory storage...');
+      family: 4, // force IPv4, avoids IPv6 localhost issues
+    });
+    console.log('✅ MongoDB connected successfully');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+    throw err; // propagate error to handle in app.js
   }
 };
 
-module.exports = connectDB;
+module.exports = {
+  connectDB,
+  config,
+};

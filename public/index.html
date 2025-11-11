@@ -118,6 +118,27 @@
 </head>
 <body>
   <div class="container">
+    <div class="container">
+      <div class="container">
+
+  <h2>Login</h2>
+  <div class="controls">
+    <input type="email" id="loginEmail" placeholder="Email" />
+    <input type="password" id="loginPassword" placeholder="Password" />
+    <button id="loginBtn">Login</button>
+  </div>
+  <div id="loginStatus" class="status info"></div>
+</div>
+
+  <h2>Register</h2>
+  <div class="controls">
+    <input type="text" id="regName" placeholder="Name" />
+    <input type="email" id="regEmail" placeholder="Email" />
+    <input type="password" id="regPassword" placeholder="Password" />
+    <button id="registerBtn">Register</button>
+  </div>
+  <div id="registerStatus" class="status info"></div>
+</div>
     <h1>🎥 Video Chat Rooms</h1>
     
     <div class="controls">
@@ -172,6 +193,17 @@
       }] 
     };
 
+    // Get JWT token saved after login (adjust as needed)
+    function getToken() {
+      return localStorage.getItem('token'); // Make sure your login sets this
+    }
+
+    // Helper to set Authorization header for fetch requests
+    function authHeaders() {
+      const token = getToken();
+      return token ? { 'Authorization': 'Bearer ' + token } : {};
+    }
+
     // UI Elements
     const statusDiv = document.getElementById('status');
     const roomListDiv = document.getElementById('roomList');
@@ -197,21 +229,25 @@
 
       try {
         updateStatus("Creating room...", "loading");
-        const res = await fetch("/api/rooms/create", {
+
+        const res = await fetch("/api/rooms", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json", 
+            ...authHeaders()
+          },
           body: JSON.stringify({ name }),
         });
-        
+
         if (!res.ok) {
           const errorData = await res.json();
           throw new Error(errorData.error || 'Failed to create room');
         }
-        
+
         const room = await res.json();
         updateStatus(`✅ Room "${room.name}" created successfully!`, 'success');
         loadRooms();
-        
+
         // Auto-join the created room
         joinRoom(room.roomId);
       } catch (error) {
@@ -224,15 +260,17 @@
       try {
         loadingRoomsDiv.style.display = 'block';
         roomListDiv.innerHTML = '';
-        
-        const res = await fetch("/api/rooms");
-        
+
+        const res = await fetch("/api/rooms", {
+          headers: authHeaders(),
+        });
+
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
-        
+
         const rooms = await res.json();
-        
+
         if (rooms.length === 0) {
           roomListDiv.innerHTML = "<li>No rooms available. Create the first one!</li>";
         } else {
@@ -255,16 +293,13 @@
       }
     }
 
-    // --- WebRTC Functions ---
+    // --- WebRTC and Socket.io Code (keep as is) ---
     async function setupMedia() {
       try {
         updateStatus("Requesting camera and microphone access...", "loading");
         
         localStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          }, 
+          video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
           audio: true 
         });
         
@@ -273,14 +308,10 @@
         stopVideoBtn.style.display = 'inline-block';
         updateStatus("✅ Camera and microphone access granted", "success");
         
-        // If we're in a room and host, create offer immediately
-        if (currentRoomId && myRole === 'host') {
-          // Add tracks to existing peer connection
-          if (peerConnection) {
-            localStream.getTracks().forEach(track => {
-              peerConnection.addTrack(track, localStream);
-            });
-          }
+        if (currentRoomId && myRole === 'host' && peerConnection) {
+          localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+          });
           setTimeout(() => {
             createOffer();
           }, 1000);
@@ -307,42 +338,36 @@
 
     function createPeerConnection() {
       const pc = new RTCPeerConnection(servers);
-      
-      // Add local stream tracks if available
+
       if (localStream) {
         localStream.getTracks().forEach(track => {
           pc.addTrack(track, localStream);
         });
       }
-      
+
       pc.onicecandidate = (event) => {
         if (event.candidate && currentRoomId) {
-          socket.emit("ice-candidate", { 
-            candidate: event.candidate, 
-            roomId: currentRoomId 
-          });
+          socket.emit("ice-candidate", { candidate: event.candidate, roomId: currentRoomId });
         }
       };
-      
+
       pc.ontrack = (event) => {
-        console.log('Received remote stream!');
         document.getElementById("remoteVideo").srcObject = event.streams[0];
         updateRemoteStatus("✅ Connected to remote stream");
         updateStatus("✅ Video connection established!", "success");
       };
-      
+
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
-        console.log('Connection state:', state);
         updateRemoteStatus(`Connection: ${state}`);
-        
+
         if (state === 'connected') {
           updateStatus("✅ Peer connection established!", "success");
         } else if (state === 'failed' || state === 'disconnected') {
           updateStatus(`❌ Connection ${state}`, "error");
         }
       };
-      
+
       return pc;
     }
 
@@ -351,110 +376,85 @@
         console.log('No peer connection for creating offer');
         return;
       }
-      
+
       try {
-        console.log('Creating offer...');
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        
-        socket.emit("offer", { 
-          offer, 
-          roomId: currentRoomId 
-        });
+
+        socket.emit("offer", { offer, roomId: currentRoomId });
         updateStatus("📤 Sent video offer to viewers", "success");
       } catch (error) {
         console.error("Create offer error:", error);
       }
     }
 
-    // --- Room Joining ---
     async function joinRoom(roomId) {
       try {
         updateStatus(`Joining room...`, "loading");
         console.log('Joining room:', roomId);
-        
-        // Reset previous connection
+
         if (peerConnection) {
           peerConnection.close();
           peerConnection = null;
         }
-        
+
         currentRoomId = roomId;
         document.getElementById("remoteVideo").srcObject = null;
         updateRemoteStatus("Connecting...");
-        
-        // Create peer connection first
+
         peerConnection = createPeerConnection();
-        
-        // Then join the room
         socket.emit("join-room", { roomId });
-        
       } catch (error) {
         console.error("Join room error:", error);
         updateStatus(`❌ Failed to join room: ${error.message}`, 'error');
       }
     }
 
-    // --- Socket Event Handlers ---
-    socket.on("role", async ({ role }) => {
+    // --- Socket.io Events ---
+    socket.on("role", ({ role }) => {
       myRole = role;
       console.log('Assigned role:', role);
-      
+
       if (role === "host") {
         updateStatus("🎥 You are the HOST - Starting your video...", 'host');
         startVideoBtn.style.display = 'inline-block';
         updateRemoteStatus("Waiting for you to start video...");
-        
-        // Auto-start video for host
+
         setTimeout(() => {
           if (!localStream) {
-            console.log('Auto-starting video for host');
             setupMedia();
           }
         }, 500);
 
-        // Host waits for viewers to join before creating offer
-        socket.on("user-joined", async ({ userId }) => {
+        socket.on("user-joined", ({ userId }) => {
           console.log('Viewer joined:', userId);
           if (peerConnection && localStream) {
-            setTimeout(() => {
-              createOffer();
-            }, 1000);
+            setTimeout(() => createOffer(), 1000);
           } else if (peerConnection && !localStream) {
-            // If we have peer connection but no local stream, wait a bit more
             setTimeout(() => {
-              if (localStream) {
-                createOffer();
-              }
+              if (localStream) createOffer();
             }, 2000);
           }
         });
       }
-      
+
       if (role === "viewer") {
         updateStatus("👀 You are a VIEWER - Waiting for host stream...", 'viewer');
         updateRemoteStatus("Waiting for host to start streaming...");
-        
-        // Auto-start video for viewer too (optional)
+
         setTimeout(() => {
           if (!localStream) {
             startVideoBtn.style.display = 'inline-block';
           }
         }, 500);
-        
-        // Viewer waits for offer from host
+
         socket.on("offer", async ({ offer, userId }) => {
-          console.log('Received offer from host');
           try {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
-            
-            socket.emit("answer", { 
-              answer, 
-              roomId: currentRoomId,
-              toUserId: userId 
-            });
+
+            socket.emit("answer", { answer, roomId: currentRoomId, toUserId: userId });
             updateStatus("📥 Connected to host", "success");
           } catch (error) {
             console.error("Answer error:", error);
@@ -463,8 +463,7 @@
       }
     });
 
-    socket.on("answer", async ({ answer, userId }) => {
-      console.log('Received answer from viewer');
+    socket.on("answer", async ({ answer }) => {
       if (peerConnection) {
         try {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
@@ -475,8 +474,7 @@
       }
     });
 
-    socket.on("ice-candidate", async ({ candidate, userId }) => {
-      console.log('Received ICE candidate');
+    socket.on("ice-candidate", async ({ candidate }) => {
       if (peerConnection) {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -487,7 +485,6 @@
     });
 
     socket.on("user-left", ({ userId }) => {
-      console.log('User left:', userId);
       updateStatus("👋 Another user left the room", "info");
       document.getElementById("remoteVideo").srcObject = null;
       updateRemoteStatus("Remote user disconnected");
@@ -498,9 +495,106 @@
       updateStatus(`Error: ${message}`, 'error');
     });
 
-    // --- Button Handlers ---
+    // Button Handlers
     startVideoBtn.onclick = setupMedia;
     stopVideoBtn.onclick = stopMedia;
+    const registerBtn = document.getElementById('registerBtn');
+    // auth and reg
+const registerStatus = document.getElementById('registerStatus');
+
+registerBtn.onclick = async () => {
+  const name = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const password = document.getElementById('regPassword').value;
+
+  if (!name || !email || !password) {
+    registerStatus.textContent = 'Please fill all registration fields';
+    registerStatus.className = 'status error';
+    return;
+  }
+
+  try {
+    registerStatus.textContent = 'Registering...';
+    registerStatus.className = 'status loading';
+
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      registerStatus.textContent = data.error || 'Registration failed';
+      registerStatus.className = 'status error';
+      return;
+    }
+
+    registerStatus.textContent = 'Registration successful! Please login.';
+    registerStatus.className = 'status success';
+
+    // Optionally: clear inputs
+    document.getElementById('regName').value = '';
+    document.getElementById('regEmail').value = '';
+    document.getElementById('regPassword').value = '';
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    registerStatus.textContent = 'Server error during registration';
+    registerStatus.className = 'status error';
+  }
+};
+
+const loginBtn = document.getElementById('loginBtn');
+const loginStatus = document.getElementById('loginStatus');
+
+loginBtn.onclick = async () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  if (!email || !password) {
+    loginStatus.textContent = 'Please enter email and password';
+    loginStatus.className = 'status error';
+    return;
+  }
+
+  try {
+    loginStatus.textContent = 'Logging in...';
+    loginStatus.className = 'status loading';
+
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      loginStatus.textContent = data.error || 'Login failed';
+      loginStatus.className = 'status error';
+      return;
+    }
+
+    loginStatus.textContent = 'Login successful!';
+    loginStatus.className = 'status success';
+
+    // Save JWT token in localStorage for auth
+    localStorage.setItem('token', data.token);
+
+    // Optionally clear inputs after login
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
+
+    // You can also refresh the rooms list or update UI here if needed
+  } catch (error) {
+    console.error('Login error:', error);
+    loginStatus.textContent = 'Server error during login';
+    loginStatus.className = 'status error';
+  }
+};
+
 
     // Initialize
     console.log('Initializing application...');
