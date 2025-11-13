@@ -23,6 +23,8 @@
     "node-webcam": "^0.8.2",
     "rtsp-relay": "^1.9.0",
     "socket.io": "^4.8.1",
-    "uuid": "^8.3.2"
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^8.3.2",
+    "yamljs": "^0.3.0"
   }
 }

@@ -16,6 +16,14 @@ const app = express();
 const server = http.createServer(app);
 const io = socketio(server);
 
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
+
+const swaggerDocument = YAML.load(path.join(__dirname, 'openapi.yaml'));
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
